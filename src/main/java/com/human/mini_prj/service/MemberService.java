@@ -1,0 +1,101 @@
+package com.human.mini_prj.service;
+
+import com.human.mini_prj.dto.MemberResDto;
+import com.human.mini_prj.dto.MemberUpdateReqDto;
+import com.human.mini_prj.dto.PageResDto;
+import com.human.mini_prj.entity.Member;
+import com.human.mini_prj.repository.MemberRepository;
+import com.human.mini_prj.security.SecurityUtil;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import java.util.ArrayList;
+import java.util.List;
+
+@Slf4j          // log 메시지
+@Service        // Spring Container에 Bean 등록
+@Transactional  // 여러개의 물리적이 작업을 논리적인 작업으로 묶음
+@RequiredArgsConstructor  // 생성자를 통한 의존성 주입을 자동으로 만들어 줌
+public class MemberService {
+    private final MemberRepository memberRepository;  // MemberRepository를 의존성 주입 받음
+
+    // 회원 전체 조회
+    @Transactional(readOnly = true)  // 조회 전용: 변경 감지(스냅샷) 생략 → 성능 이점
+    public List<MemberResDto> getMemberList() {
+        List<Member> memberList = memberRepository.findAll();
+        List<MemberResDto> memberResDtoList = new ArrayList<>();
+        for (Member member : memberList) {
+            memberResDtoList.add(toDto(member));
+        }
+        return memberResDtoList;
+    }
+
+    // 회원 상세 조회
+    @Transactional(readOnly = true)
+    public MemberResDto getMemberDetail(String email) {
+        Member member = memberRepository.findByEmail(email)
+                .orElseThrow(() -> new IllegalArgumentException("해당 회원이 존재하지 않습니다: " + email));
+        return toDto(member);
+    }
+
+    // 회원 수정
+    public boolean updateMember(MemberUpdateReqDto dto) {
+        try {
+            String email = SecurityUtil.currentEmail();
+            Member member = memberRepository.findByEmail(email)
+                    .orElseThrow(() -> new IllegalArgumentException("해당 회원이 존재하지 않습니다: " + email));
+            member.setName(dto.getName());
+            member.setImage(dto.getImage());
+            return true;
+        } catch (Exception e) {
+            log.error("회원 정보 수정 시 오류 발생: {}", e.getMessage());
+            return false;
+        }
+    }
+
+    // 회원 삭제
+    public boolean deleteMember(String email) {
+        try {
+            if (!email.equals(SecurityUtil.currentEmail())) {
+                throw new IllegalArgumentException("본인만 탈퇴할 수 있습니다.");
+            }
+            Member member = memberRepository.findByEmail(email)
+                    .orElseThrow(() -> new IllegalArgumentException("해당 회원이 존재하지 않습니다: " + email));
+            memberRepository.delete(member);
+            return true;
+        } catch (Exception e) {
+            log.error("회원 삭제 시 오류 발생: {}", e.getMessage());
+            return false;
+        }
+    }
+
+    // 회원 목록 페이지 네이지네이션
+    public PageResDto<MemberResDto> getMemberPage(int page, int size) {
+        // PageRequest.of(페이지번호, 페이지크기, 정렬)
+        // - 페이지번호는 0부터 시작 (0 = 첫 페이지)
+        // - Sort.by(정렬방향, "엔티티 필드명") ← DB 컬럼명이 아니라 '엔티티 필드명'을 씀
+        Pageable pageable = PageRequest.of(page, size, Sort.by("regDate").descending());
+        Page<Member> memberPage = memberRepository.findAll(pageable);
+        Page<MemberResDto> memberResDtoPage = memberPage.map(this::toDto);
+        return new PageResDto<>(memberResDtoPage);
+    }
+
+
+
+
+    // Entity를 DTO로 변환하는 메서드 (pwd는 제외)
+    private MemberResDto toDto(Member member) {
+        MemberResDto dto = new MemberResDto();
+        dto.setId(member.getId());
+        dto.setEmail(member.getEmail());
+        dto.setName(member.getName());
+        dto.setImage(member.getImage());
+        dto.setRegDate(member.getRegDate());
+        return dto;
+    }
+}
