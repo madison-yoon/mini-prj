@@ -48,6 +48,10 @@ public class AuthService {
         Member member = memberRepository.findByEmail(email)
                 .orElseThrow(this::loginFailed);
 
+        if (pwd == null) {
+            throw loginFailed();
+        }
+
         String storedPassword = member.getPwd();
         boolean passwordMatches;
 
