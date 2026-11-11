@@ -13,14 +13,15 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.Optional;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 
-@Slf4j  // log 메시지 출력을 위해 사용
-@Service  // Spring Container에 Bean 등록
-@Transactional // 트랜잭션 처리: 여러개의 물리적인 작업 단위를 한개의 논리적인 단위로 묶음
-@RequiredArgsConstructor  // 생성자를 통한 의존성 주입을 자동으로 만들어 줌
+@Slf4j
+@Service
+@Transactional
+@RequiredArgsConstructor
 public class AuthService {
-    private final MemberRepository memberRepository;  // 생성자를 통한 의존성 주입
+    private final MemberRepository memberRepository;
     private final PasswordEncoder passwordEncoder;
     private final TokenProvider tokenProvider;
 
@@ -41,27 +42,58 @@ public class AuthService {
         }
     }
 
-    // 로그인: 성공 → 토큰, 실패 → 401
-    @Transactional(readOnly = true)
+    // 로그인: 기존 BCrypt 비밀번호와 과거 평문 비밀번호 모두 처리
+    @Transactional
     public TokenDto login(String email, String pwd) {
         Member member = memberRepository.findByEmail(email)
                 .orElseThrow(this::loginFailed);
-        if (!passwordEncoder.matches(pwd, member.getPwd())) {   // 평문 vs 해시 비교
+
+        String storedPassword = member.getPwd();
+        boolean passwordMatches;
+
+        if (isBcryptPassword(storedPassword)) {
+            passwordMatches = passwordEncoder.matches(pwd, storedPassword);
+        } else {
+            // 기존 데이터가 평문으로 저장된 경우에만 일치 여부를 확인하고 즉시 BCrypt로 전환
+            passwordMatches = storedPassword != null
+                    && MessageDigest.isEqual(
+                            pwd.getBytes(StandardCharsets.UTF_8),
+                            storedPassword.getBytes(StandardCharsets.UTF_8)
+                    );
+
+            if (passwordMatches) {
+                member.setPwd(passwordEncoder.encode(pwd));
+            }
+        }
+
+        if (!passwordMatches) {
             throw loginFailed();
         }
+
         return tokenProvider.createToken(member.getEmail(), member.getAuthority());
     }
 
+    private boolean isBcryptPassword(String password) {
+        return password != null
+                && password.length() == 60
+                && (password.startsWith("$2a$")
+                || password.startsWith("$2b$")
+                || password.startsWith("$2y$"));
+    }
+
     private CustomException loginFailed() {
-        // 이메일/비밀번호 중 무엇이 틀렸는지 알려주지 않는 것이 보안상 안전
-        return new CustomException(HttpStatus.UNAUTHORIZED, "LOGIN_FAILED", "이메일 또는 비밀번호가 올바르지 않습니다.");
+        return new CustomException(
+                HttpStatus.UNAUTHORIZED,
+                "LOGIN_FAILED",
+                "이메일 또는 비밀번호가 올바르지 않습니다."
+        );
     }
 
     // DTO -> Entity
     private Member toEntity(SignUpReqDto dto) {
         Member member = new Member();
         member.setName(dto.getName());
-        member.setPwd(dto.getPwd());
+        member.setPwd(passwordEncoder.encode(dto.getPwd()));
         member.setEmail(dto.getEmail());
         return member;
     }
