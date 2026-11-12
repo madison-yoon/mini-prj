@@ -43,6 +43,7 @@ public class SecurityConfig {
                         .requestMatchers("/error").permitAll()                   // sendError 포워드
                         .requestMatchers("/auth/**").permitAll()                 // 가입·로그인·중복확인
                         .requestMatchers("/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs/**").permitAll()
+                        .requestMatchers("/ws/**", "/chat/**").permitAll()     // 채팅은 JWT 제외
                         .requestMatchers(HttpMethod.GET, "/board/**", "/comment/**").permitAll() // 목록·상세 조회
                         .anyRequest().authenticated())                           // 글쓰기·수정·삭제·회원 API
                 .addFilterBefore(new JwtFilter(tokenProvider), UsernamePasswordAuthenticationFilter.class);
